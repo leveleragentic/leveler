@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leverler</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <span class="pulse-ring"></span>
+        <span class="pulse-dot"></span>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">LEVERLER</span>
+        <span class="brand-sub" id="statusLabel">IDLE</span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-view="dashboard">
+        <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" data-view="triggers">
+        <svg viewBox="0 0 24 24"><path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z"/></svg>
+        Triggers
+        <span class="badge" id="triggerCount">0</span>
+      </button>
+      <button class="nav-item" data-view="agents">
+        <svg viewBox="0 0 24 24"><path d="M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zM7 17v-2h10v2H7zm3-6.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5S10 11.33 10 10.5zm4 0c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5S14 11.33 14 10.5z"/></svg>
+        Agents
+        <span class="badge" id="agentCount">0</span>
+      </button>
+      <button class="nav-item" data-view="logs">
+        <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+        Logs
+      </button>
+      <button class="nav-item" data-view="settings">
+        <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        Settings
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="start-stop-btn" id="startStopBtn">
+        <span class="btn-icon">▶</span>
+        <span class="btn-label">Start Listening</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main id="main">
+
+    <!-- ── Dashboard ─────────────────────────────────── -->
+    <section class="view active" id="view-dashboard">
+      <div class="view-header">
+        <h1>Dashboard</h1>
+        <div class="header-meta" id="uptime">Leverler not started</div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-triggered">0</div>
+          <div class="stat-label">Triggers Fired</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-completed">0</div>
+          <div class="stat-label">Agents Completed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-failed">0</div>
+          <div class="stat-label">Failed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-active">0</div>
+          <div class="stat-label">Active Now</div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- Radar -->
+        <div class="card radar-card">
+          <div class="card-title">STATUS</div>
+          <div class="radar" id="radar">
+            <div class="radar-ring r1"></div>
+            <div class="radar-ring r2"></div>
+            <div class="radar-ring r3"></div>
+            <div class="radar-sweep" id="radarSweep"></div>
+            <div class="radar-center">
+              <div class="radar-dot"></div>
+              <div class="radar-label" id="radarLabel">IDLE</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active agents -->
+        <div class="card agents-card">
+          <div class="card-title">ACTIVE AGENTS</div>
+          <div class="agent-list" id="activeAgentList">
+            <div class="empty-state">No agents running</div>
+          </div>
+        </div>
+
+        <!-- Recent events -->
+        <div class="card events-card">
+          <div class="card-title">RECENT EVENTS</div>
+          <div class="event-list" id="eventList">
+            <div class="empty-state">Waiting for triggers…</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Triggers ───────────────────────────────────── -->
+    <section class="view" id="view-triggers">
+      <div class="view-header">
+        <h1>Triggers</h1>
+        <button class="btn-primary" id="addTriggerBtn">+ Add Trigger</button>
+      </div>
+      <div class="trigger-list" id="triggerList">
+        <div class="empty-state">No triggers configured. Add one to start.</div>
+      </div>
+    </section>
+
+    <!-- ── Agents ─────────────────────────────────────── -->
+    <section class="view" id="view-agents">
+      <div class="view-header">
+        <h1>Agents</h1>
+        <button class="btn-primary" id="launchAgentBtn">↑ Launch Agent</button>
+      </div>
+      <div class="view-subheader">
+        <button class="tab-btn active" data-tab="running">Running</button>
+        <button class="tab-btn" data-tab="history">History</button>
+      </div>
+      <div id="agents-running" class="agent-grid"></div>
+      <div id="agents-history" class="agent-grid hidden"></div>
+    </section>
+
+    <!-- ── Logs ───────────────────────────────────────── -->
+    <section class="view" id="view-logs">
+      <div class="view-header">
+        <h1>Log Stream</h1>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-ghost" id="clearLogsBtn">Clear</button>
+          <button class="btn-ghost" id="pauseLogsBtn">Pause</button>
+        </div>
+      </div>
+      <div class="log-stream" id="logStream"></div>
+    </section>
+
+    <!-- ── Settings ───────────────────────────────────── -->
+    <section class="view" id="view-settings">
+      <div class="view-header"><h1>Settings</h1></div>
+      <div class="settings-form">
+        <div class="form-group">
+          <label>Anthropic API Key</label>
+          <div class="input-row">
+            <input type="password" id="apiKeyInput" placeholder="sk-ant-…" autocomplete="off" />
+            <button class="btn-primary" id="saveApiKey">Save</button>
+          </div>
+          <span class="form-hint">Your key is stored locally and never sent anywhere except Anthropic.</span>
+        </div>
+        <div class="form-group">
+          <label>Max Concurrent Agents</label>
+          <input type="number" id="maxAgents" min="1" max="10" value="3" style="width:80px" />
+        </div>
+        <div class="form-group">
+          <label>About</label>
+          <p class="form-hint">Leverler v1.0 — A loitering AI agent orchestrator.<br/>
+          Listens for triggers in the background and launches Claude agents on demand.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── Modals ─────────────────────────────────────────────────────────── -->
+  <div class="modal-overlay hidden" id="triggerModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="triggerModalTitle">Add Trigger</h2>
+        <button class="modal-close" data-modal="triggerModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Trigger Name</label>
+          <input type="text" id="t_name" placeholder="e.g. Support Email Monitor" />
+        </div>
+        <div class="form-group">
+          <label>Trigger Type</label>
+          <select id="t_type">
+            <option value="keyword">Keyword (clipboard)</option>
+            <option value="email">Email (IMAP polling)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Keywords (comma-separated)</label>
+          <input type="text" id="t_keywords" placeholder="urgent, help, invoice, error" />
+        </div>
+
+        <div id="emailFields" class="hidden">
+          <div class="form-group">
+            <label>IMAP Host</label>
+            <input type="text" id="t_imapHost" placeholder="imap.gmail.com" />
+          </div>
+          <div class="form-group">
+            <label>Email / Username</label>
+            <input type="text" id="t_imapUser" placeholder="you@gmail.com" />
+          </div>
+          <div class="form-group">
+            <label>App Password</label>
+            <input type="password" id="t_imapPass" placeholder="Gmail app password" />
+          </div>
+          <div class="form-group">
+            <label>Poll Interval (seconds)</label>
+            <input type="number" id="t_pollSec" value="120" min="30" max="3600" />
+          </div>
+        </div>
+
+        <div class="form-divider">Agent to Launch</div>
+        <div class="form-group">
+          <label>Agent Type</label>
+          <select id="t_agentType">
+            <option value="custom">Custom Prompt</option>
+            <option value="email">Email Agent</option>
+            <option value="web">Web Research Agent</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Agent Prompt</label>
+          <textarea id="t_prompt" rows="3" placeholder="What should the agent do when this trigger fires?"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" data-modal="triggerModal">Cancel</button>
+        <button class="btn-primary" id="saveTriggerBtn">Save Trigger</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay hidden" id="launchModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Launch Agent</h2>
+        <button class="modal-close" data-modal="launchModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Agent Type</label>
+          <select id="la_type">
+            <option value="custom">Custom Prompt</option>
+            <option value="email">Email Agent</option>
+            <option value="web">Web Research Agent</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Prompt / Task</label>
+          <textarea id="la_prompt" rows="4" placeholder="Describe what the agent should do…"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Context (optional)</label>
+          <textarea id="la_context" rows="3" placeholder="Any additional context…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" data-modal="launchModal">Cancel</button>
+        <button class="btn-primary" id="launchAgentConfirmBtn">Launch ↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent detail modal -->
+  <div class="modal-overlay hidden" id="agentModal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2 id="agentModalTitle">Agent Output</h2>
+        <button class="modal-close" data-modal="agentModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="agent-detail-meta" id="agentDetailMeta"></div>
+        <div class="agent-detail-progress" id="agentDetailProgress"></div>
+        <div class="agent-detail-result" id="agentDetailResult"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

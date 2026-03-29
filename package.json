@@ -1,0 +1,19 @@
+{
+  "name": "leverler",
+  "version": "1.0.0",
+  "description": "Loitering AI Agent Leverler — Background AI orchestration desktop app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "ELECTRON_ENV=development electron ."
+  },
+  "dependencies": {
+    "electron": "^28.2.0",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "dotenv": "^16.4.0",
+    "imapflow": "^1.0.162"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
