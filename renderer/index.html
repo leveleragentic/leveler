@@ -159,22 +159,56 @@
     <section class="view" id="view-settings">
       <div class="view-header"><h1>Settings</h1></div>
       <div class="settings-form">
+
+        <!-- Ollama connection -->
         <div class="form-group">
-          <label>Anthropic API Key</label>
+          <label>Ollama Host</label>
           <div class="input-row">
-            <input type="password" id="apiKeyInput" placeholder="sk-ant-…" autocomplete="off" />
-            <button class="btn-primary" id="saveApiKey">Save</button>
+            <input type="text" id="ollamaHost" value="http://localhost:11434" autocomplete="off" />
+            <button class="btn-ghost" id="checkOllamaBtn">Test Connection</button>
           </div>
-          <span class="form-hint">Your key is stored locally and never sent anywhere except Anthropic.</span>
+          <div id="ollamaStatus" class="ollama-status"></div>
+          <span class="form-hint">Ollama must be running locally. Start it with: <code>ollama serve</code></span>
         </div>
+
+        <!-- Model picker -->
+        <div class="form-group">
+          <label>Model</label>
+          <div class="input-row">
+            <select id="ollamaModel" style="flex:1">
+              <option value="qwen2.5:7b">qwen2.5:7b (fast, recommended)</option>
+              <option value="qwen2.5:14b">qwen2.5:14b (smarter, slower)</option>
+              <option value="qwen2.5:3b">qwen2.5:3b (lightweight)</option>
+              <option value="llama3.2:3b">llama3.2:3b</option>
+              <option value="llama3.1:8b">llama3.1:8b</option>
+              <option value="mistral:7b">mistral:7b</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+          <input type="text" id="ollamaModelCustom" class="hidden" placeholder="e.g. qwen2.5-coder:7b" style="margin-top:6px" />
+          <div id="availableModels" class="form-hint" style="margin-top:6px"></div>
+        </div>
+
+        <!-- Temperature -->
+        <div class="form-group">
+          <label>Temperature <span id="tempDisplay" style="color:var(--cyan);font-family:var(--font-mono)">0.4</span></label>
+          <input type="range" id="ollamaTemp" min="0" max="1" step="0.05" value="0.4" style="width:200px;accent-color:var(--green)" />
+          <span class="form-hint">Lower = more focused. Higher = more creative.</span>
+        </div>
+
+        <!-- Concurrency -->
         <div class="form-group">
           <label>Max Concurrent Agents</label>
-          <input type="number" id="maxAgents" min="1" max="10" value="3" style="width:80px" />
+          <input type="number" id="maxAgents" min="1" max="5" value="3" style="width:80px" />
+          <span class="form-hint">Recommended: 1–2 for 7B models to avoid memory pressure.</span>
         </div>
+
+        <button class="btn-primary" id="saveSettingsBtn" style="width:fit-content">Save Settings</button>
+
         <div class="form-group">
           <label>About</label>
-          <p class="form-hint">Leverler v1.0 — A loitering AI agent orchestrator.<br/>
-          Listens for triggers in the background and launches Claude agents on demand.</p>
+          <p class="form-hint">Leverler v2.0 — Local AI Agent Orchestrator<br/>
+          Runs fully on-device via Ollama. No API keys. No cloud. No data leaves your machine.</p>
         </div>
       </div>
     </section>

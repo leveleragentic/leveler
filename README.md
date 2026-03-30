@@ -1,72 +1,83 @@
-# LEVERLER
-### Loitering AI Agent Orchestrator
+# LEVERLER v2
+### Loitering AI Agent Orchestrator — Local LLM Edition
 
-A desktop app that runs silently in your system tray, watches for triggers, and autonomously launches Claude AI agents in response.
+Runs silently in your system tray, watches for triggers, and autonomously launches
+AI agents in response — 100% on-device via Ollama. No API keys. No cloud. No data leaves your machine.
 
 ---
 
-## ✦ Features
+## ✦ What changed in v2
 
-- **Background listener** — lives in your system tray, always watching
-- **Keyword triggers** — fires when clipboard text matches keywords you define
-- **Email triggers** — polls an IMAP inbox and fires on matching emails
-- **Agent types**: Email agent · Web research agent · Custom prompt agent
-- **Live dashboard** — radar display, active agent cards, real-time log stream
-- **Multi-agent** — run several agents concurrently
+| | v1 | v2 |
+|---|---|---|
+| Model | Anthropic Claude (cloud) | Qwen2.5 via Ollama (local) |
+| API key required | Yes | No |
+| Data leaves machine | Yes | Never |
+| Cost per agent run | ~$0.01–0.10 | $0 |
+| Offline support | No | Yes |
+| Web search | Built-in | Not included (local only) |
 
 ---
 
 ## ⚡ Quick Start
 
-### 1. Prerequisites
-- Node.js 18+ — [nodejs.org](https://nodejs.org)
-- An Anthropic API key — [console.anthropic.com](https://console.anthropic.com)
+### 1. Install Ollama
+```bash
+# macOS
+brew install ollama
 
-### 2. Install
+# or download from
+https://ollama.com
+```
+
+### 2. Pull Qwen2.5
+```bash
+ollama pull qwen2.5:7b      # fast, recommended
+ollama pull qwen2.5:14b     # smarter, needs ~10GB RAM
+```
+
+### 3. Start Ollama
+```bash
+ollama serve
+# Runs at http://localhost:11434
+```
+
+### 4. Install & run Leverler
 ```bash
 cd leverler
 npm install
-```
-
-### 3. Configure API key
-Either add it in-app (Settings tab), or create a `.env` file:
-```
-ANTHROPIC_API_KEY=sk-ant-…
-```
-
-### 4. Run
-```bash
 npm start
 ```
 
-The app will appear in your **system tray** and open the dashboard.
+### 5. Test the connection
+Open **Settings** in the app and click **Test Connection** — you'll see your available models listed.
+
+---
+
+## 🤖 Model Recommendations
+
+| Model | VRAM / RAM | Speed | Best for |
+|-------|-----------|-------|----------|
+| `qwen2.5:7b` | ~5GB | Fast | Daily use, email, summaries |
+| `qwen2.5:14b` | ~9GB | Medium | Complex reasoning, research |
+| `qwen2.5:3b` | ~2GB | Very fast | Low-resource machines |
+| `llama3.2:3b` | ~2GB | Fast | Alternative lightweight option |
+
+On Apple Silicon (M1/M2/M3), the 7B runs in ~1–3 seconds per response. The 14B in ~5–10s.
 
 ---
 
 ## 🎯 Setting Up Triggers
 
 ### Keyword Trigger (Clipboard)
-Leverler watches your clipboard every 1.5 seconds. When copied text contains one of your keywords, it fires the linked agent.
-
-**Example**: Set keyword `"invoice"` + email agent → auto-drafts responses to invoice emails you copy.
+Leverler watches your clipboard every 1.5 seconds. When copied text contains one of
+your keywords, it fires the linked agent automatically.
 
 ### Email Trigger (IMAP)
 For Gmail, use an [App Password](https://myaccount.google.com/apppasswords):
 - Host: `imap.gmail.com`
-- User: `your@gmail.com`  
+- User: `your@gmail.com`
 - Pass: your 16-character App Password
-
-Leverler polls on the interval you set and fires the agent for matching messages.
-
----
-
-## 🤖 Agent Types
-
-| Type | What it does |
-|------|-------------|
-| `custom` | Runs your prompt with the trigger context as input |
-| `email` | Summarizes emails, drafts replies, categorizes urgency |
-| `web` | Uses Claude's web search to research a topic and returns a report |
 
 ---
 
@@ -74,26 +85,32 @@ Leverler polls on the interval you set and fires the agent for matching messages
 
 ```
 leverler/
-├── main.js              ← Electron main process (tray, window, IPC)
-├── preload.js           ← Secure IPC bridge
+├── main.js                 ← Electron main process
+├── preload.js              ← Secure IPC bridge
 ├── agents/
-│   ├── leverler.js     ← Orchestration engine
-│   ├── triggers.js      ← Clipboard + email listeners
-│   └── agentRunner.js   ← Anthropic API agent execution
+│   ├── leverler.js         ← Orchestration engine
+│   ├── triggers.js         ← Clipboard + email listeners
+│   └── agentRunner.js      ← Ollama agent execution (streaming)
 ├── renderer/
-│   ├── index.html       ← UI shell
-│   ├── style.css        ← Dark mission-control styles
-│   └── app.js           ← UI logic
-└── .env                 ← (create this) ANTHROPIC_API_KEY=...
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+└── .env                    ← Optional: OLLAMA_HOST, OLLAMA_MODEL
 ```
 
 ---
 
-## 🔒 Privacy
-- Your API key is stored locally in `.env` and never sent anywhere except Anthropic's API.
-- Email credentials are held in memory only; not written to disk.
-- No telemetry, no analytics.
+## ⚙️ Optional .env overrides
+
+```env
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:14b
+OLLAMA_TEMP=0.3
+```
+
+Settings saved in-app take precedence at runtime.
 
 ---
 
-*Built with Electron + Anthropic SDK*
+## 🔒 Privacy
+Everything stays on your machine. No telemetry, no analytics, no external calls.

@@ -1,90 +1,122 @@
-const Anthropic = require('@anthropic-ai/sdk');
+const { Ollama } = require('ollama');
 
+// ── Default model config ────────────────────────────────────────────────────
+const DEFAULTS = {
+  model:       'qwen2.5:7b',
+  host:        'http://localhost:11434',
+  temperature: 0.4,
+  maxTokens:   2048,
+};
+
+// ── System prompts per agent type ───────────────────────────────────────────
 const SYSTEM_PROMPTS = {
-  email: `You are an email management agent. Analyze the provided email context and take action:
-- Summarize key points and action items
+  email: `You are an email management agent. Analyze the provided email context and:
+- Summarize key points and action items clearly
 - Draft a suggested reply if appropriate
-- Flag urgency or important details
-- Categorize: (urgent / FYI / action-required / spam)
-Be concise and professional.`,
+- Flag urgency level: URGENT / ACTION-REQUIRED / FYI / SPAM
+- Keep your response structured and concise.`,
 
-  web: `You are a web research agent. Your job is to search the web, synthesize findings, and return a clear, well-structured report. Always include sources. Be factual and comprehensive.`,
+  web: `You are a web research agent. The user will give you a topic or question.
+Reason through what you know thoroughly, cite any relevant facts, and return a
+well-structured research report. Be factual. Acknowledge when you are uncertain.`,
 
-  custom: `You are an autonomous AI agent. Complete the given task efficiently and thoroughly. Think step-by-step and provide clear output.`,
+  custom: `You are an autonomous AI agent running locally on the user's machine.
+Complete the given task efficiently and thoroughly. Think step by step.
+Provide clear, actionable output.`,
 };
 
 class AgentRunner {
-  constructor(apiKey) {
-    this.apiKey = apiKey;
-    this.client = apiKey ? new Anthropic({ apiKey }) : null;
+  constructor(config = {}) {
+    this.config = { ...DEFAULTS, ...config };
+    this.ollama = new Ollama({ host: this.config.host });
   }
 
-  setApiKey(apiKey) {
-    this.apiKey = apiKey;
-    this.client = new Anthropic({ apiKey });
+  updateConfig(cfg) {
+    this.config = { ...this.config, ...cfg };
+    this.ollama  = new Ollama({ host: this.config.host });
   }
 
-  async run({ type, prompt, context, onProgress }) {
-    if (!this.client) {
-      throw new Error('No Anthropic API key configured — add your key in Settings.');
-    }
-
-    const system      = SYSTEM_PROMPTS[type] || SYSTEM_PROMPTS.custom;
-    const userContent = this._buildUserMessage(type, prompt, context);
-    const tools       = this._getTools(type);
-
-    onProgress?.(`Initializing ${type} agent…`);
-
-    let messages = [{ role: 'user', content: userContent }];
-    let resp;
-    let iters = 0;
-    const MAX = 6;
-
-    while (iters < MAX) {
-      iters++;
-      const params = {
-        model:      'claude-opus-4-5',
-        max_tokens: 2048,
-        system,
-        messages,
-        ...(tools.length ? { tools } : {}),
+  // ── Health check — called from settings UI ─────────────────────────────
+  async ping() {
+    try {
+      const list = await this.ollama.list();
+      return {
+        ok:     true,
+        models: (list.models || []).map(m => m.name),
       };
-
-      resp = await this.client.messages.create(params);
-      onProgress?.(`Claude responded (stop: ${resp.stop_reason})`);
-
-      if (resp.stop_reason !== 'tool_use') break;
-
-      // Handle tool calls
-      const toolCalls = resp.content.filter(b => b.type === 'tool_use');
-      const toolResults = [];
-
-      for (const tc of toolCalls) {
-        onProgress?.(`Using tool: ${tc.name}`);
-        toolResults.push({
-          type:        'tool_result',
-          tool_use_id: tc.id,
-          content:     `Tool ${tc.name} executed. Results handled by Anthropic.`,
-        });
-      }
-
-      messages = [
-        ...messages,
-        { role: 'assistant', content: resp.content },
-        { role: 'user',      content: toolResults },
-      ];
+    } catch (err) {
+      return { ok: false, error: err.message };
     }
-
-    const text = (resp?.content || [])
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
-      .join('\n')
-      .trim();
-
-    onProgress?.('Agent finished');
-    return text || '(No output)';
   }
 
+  // ── Main agent runner ──────────────────────────────────────────────────
+  async run({ type, prompt, context, onProgress }) {
+    onProgress?.(`Connecting to Ollama at ${this.config.host}…`);
+
+    // Verify Ollama is reachable
+    const health = await this.ping();
+    if (!health.ok) {
+      throw new Error(
+        `Cannot reach Ollama at ${this.config.host}. ` +
+        `Is it running? Try: ollama serve`
+      );
+    }
+
+    // Check the model exists
+    const modelAvailable = health.models.some(m =>
+      m === this.config.model || m.startsWith(this.config.model.split(':')[0])
+    );
+    if (!modelAvailable) {
+      throw new Error(
+        `Model "${this.config.model}" not found locally. ` +
+        `Pull it first: ollama pull ${this.config.model}\n` +
+        `Available: ${health.models.join(', ') || 'none'}`
+      );
+    }
+
+    onProgress?.(`Using model: ${this.config.model}`);
+
+    const system  = SYSTEM_PROMPTS[type] || SYSTEM_PROMPTS.custom;
+    const userMsg = this._buildUserMessage(type, prompt, context);
+
+    const messages = [
+      { role: 'system',    content: system },
+      { role: 'user',      content: userMsg },
+    ];
+
+    onProgress?.('Streaming response…');
+
+    // ── Streaming response ───────────────────────────────────────────────
+    let fullText = '';
+    let chunkCount = 0;
+
+    const stream = await this.ollama.chat({
+      model:    this.config.model,
+      messages,
+      stream:   true,
+      options: {
+        temperature:  this.config.temperature,
+        num_predict:  this.config.maxTokens,
+      },
+    });
+
+    for await (const chunk of stream) {
+      const token = chunk.message?.content || '';
+      fullText   += token;
+      chunkCount++;
+
+      // Emit progress every ~80 chars so the UI feels alive
+      if (chunkCount % 20 === 0) {
+        const preview = fullText.slice(-60).replace(/\n/g, ' ');
+        onProgress?.(`…${preview}`);
+      }
+    }
+
+    onProgress?.('Done');
+    return fullText.trim() || '(No output)';
+  }
+
+  // ── Build user message ────────────────────────────────────────────────
   _buildUserMessage(type, prompt, context) {
     const parts = [];
     if (prompt) parts.push(prompt);
@@ -94,23 +126,18 @@ class AgentRunner {
         parts.push(`\nContext:\n${context}`);
       } else if (context.text) {
         parts.push(`\nClipboard content:\n${context.text}`);
-        if (context.matchedKeyword) parts.push(`(Triggered by keyword: "${context.matchedKeyword}")`);
+        if (context.matchedKeyword) {
+          parts.push(`(Triggered by keyword: "${context.matchedKeyword}")`);
+        }
       } else if (context.messages) {
         const msgs = context.messages.slice(0, 5)
-          .map(m => `• [${m.from}] ${m.subject}`).join('\n');
-        parts.push(`\nEmail messages to process:\n${msgs}`);
+          .map(m => `• From: ${m.from}\n  Subject: ${m.subject}`).join('\n');
+        parts.push(`\nEmails to process:\n${msgs}`);
       }
     }
 
-    if (!parts.length) parts.push('Complete your task.');
+    if (!parts.length) parts.push('Complete your assigned task.');
     return parts.join('\n');
-  }
-
-  _getTools(type) {
-    if (type === 'web') {
-      return [{ type: 'web_search_20250305', name: 'web_search' }];
-    }
-    return [];
   }
 }
 

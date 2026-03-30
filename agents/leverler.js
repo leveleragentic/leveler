@@ -7,18 +7,23 @@ class Leverler extends EventEmitter {
   constructor(config = {}) {
     super();
     this.config = {
-      apiKey: '',
-      maxConcurrentAgents: 3,
-      triggers: [],
-      agentDefs: [],
+      ollamaHost:           'http://localhost:11434',
+      ollamaModel:          'qwen2.5:7b',
+      ollamaTemperature:    0.4,
+      maxConcurrentAgents:  3,
+      triggers:             [],
       ...config,
     };
 
-    this.agents = new Map();     // id → agent state
+    this.agents    = new Map();
     this.isRunning = false;
-    this.stats = { triggered: 0, completed: 0, failed: 0 };
+    this.stats     = { triggered: 0, completed: 0, failed: 0 };
 
-    this.runner   = new AgentRunner(this.config.apiKey);
+    this.runner   = new AgentRunner({
+      host:        this.config.ollamaHost,
+      model:       this.config.ollamaModel,
+      temperature: this.config.ollamaTemperature,
+    });
     this.triggers = new TriggerManager(this.config);
 
     this.triggers.on('triggered', (trigger, ctx) => {
@@ -28,12 +33,12 @@ class Leverler extends EventEmitter {
     this.triggers.on('log', (entry) => this.emit('log', entry));
   }
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
+  // ── Lifecycle ────────────────────────────────────────────────────────
   async start() {
     if (this.isRunning) return;
     this.isRunning = true;
     await this.triggers.start();
-    this._log('info', 'Leverler started — loitering for triggers');
+    this._log('info', `Leverler started — model: ${this.config.ollamaModel} @ ${this.config.ollamaHost}`);
     this.emit('leverler:status', { running: true });
   }
 
@@ -45,16 +50,16 @@ class Leverler extends EventEmitter {
     this.emit('leverler:status', { running: false });
   }
 
-  // ── Trigger handling ───────────────────────────────────────────────────────
+  // ── Trigger → agent ──────────────────────────────────────────────────
   async _handleTrigger(trigger, context) {
     this.stats.triggered++;
-    const running = [...this.agents.values()].filter(a => a.status === 'running').length;
-    if (running >= this.config.maxConcurrentAgents) {
-      this._log('warn', `Agent cap (${this.config.maxConcurrentAgents}) reached — skipping trigger: ${trigger.name}`);
+    const active = [...this.agents.values()].filter(a => a.status === 'running').length;
+    if (active >= this.config.maxConcurrentAgents) {
+      this._log('warn', `Agent cap (${this.config.maxConcurrentAgents}) reached — queued trigger dropped: ${trigger.name}`);
       return;
     }
     await this.launchAgent({
-      type:        trigger.agentType  || 'custom',
+      type:        trigger.agentType   || 'custom',
       prompt:      trigger.agentPrompt,
       name:        `${trigger.name} agent`,
       context,
@@ -62,7 +67,7 @@ class Leverler extends EventEmitter {
     });
   }
 
-  // ── Agent launch ───────────────────────────────────────────────────────────
+  // ── Launch ───────────────────────────────────────────────────────────
   async launchAgent({ type, prompt, name, context, triggeredBy = 'manual' }) {
     const id = crypto.randomUUID();
     const agent = {
@@ -80,17 +85,14 @@ class Leverler extends EventEmitter {
 
     this.agents.set(id, agent);
     this.emit('agent:start', { ...agent });
-    this._log('agent', `Agent launched: ${agent.name}`);
+    this._log('agent', `Agent launched: ${agent.name} [${type}]`);
 
     try {
       const result = await this.runner.run({
-        type,
-        prompt,
-        context,
+        type, prompt, context,
         onProgress: (msg) => {
           agent.progress.push({ t: Date.now(), msg });
           this.emit('agent:update', { id, msg });
-          this._log('agent', `[${agent.name}] ${msg}`);
         },
       });
 
@@ -111,7 +113,12 @@ class Leverler extends EventEmitter {
     return id;
   }
 
-  // ── Trigger CRUD ──────────────────────────────────────────────────────────
+  // ── Ollama health check (surfaced to UI) ─────────────────────────────
+  async checkOllama() {
+    return this.runner.ping();
+  }
+
+  // ── Trigger CRUD ─────────────────────────────────────────────────────
   addTrigger(trigger) {
     const full = { ...trigger, id: crypto.randomUUID(), enabled: true };
     this.config.triggers.push(full);
@@ -132,10 +139,14 @@ class Leverler extends EventEmitter {
     }
   }
 
-  // ── Config / state ────────────────────────────────────────────────────────
+  // ── Config / state ────────────────────────────────────────────────────
   setConfig(cfg) {
     this.config = { ...this.config, ...cfg };
-    if (cfg.apiKey) this.runner.setApiKey(cfg.apiKey);
+    this.runner.updateConfig({
+      host:        this.config.ollamaHost,
+      model:       this.config.ollamaModel,
+      temperature: this.config.ollamaTemperature,
+    });
     this.triggers.updateConfig(this.config);
   }
 
@@ -145,10 +156,7 @@ class Leverler extends EventEmitter {
       stats:     { ...this.stats },
       agents:    [...this.agents.values()].map(a => ({ ...a })),
       triggers:  this.config.triggers,
-      config: {
-        ...this.config,
-        apiKey: this.config.apiKey ? '●●●●●●●●' : '',
-      },
+      config:    { ...this.config },
     };
   }
 
