@@ -6,6 +6,7 @@ const crypto = require('crypto');
 class Leverler extends EventEmitter {
   constructor(config = {}) {
     super();
+    this.confirmTrigger = config.confirmTrigger || null;
     this.config = {
       ollamaHost:           'http://localhost:11434',
       ollamaModel:          'qwen2.5:7b',
@@ -14,6 +15,7 @@ class Leverler extends EventEmitter {
       triggers:             [],
       ...config,
     };
+    delete this.config.confirmTrigger;
 
     this.agents    = new Map();
     this.isRunning = false;
@@ -57,6 +59,13 @@ class Leverler extends EventEmitter {
     if (active >= this.config.maxConcurrentAgents) {
       this._log('warn', `Agent cap (${this.config.maxConcurrentAgents}) reached — queued trigger dropped: ${trigger.name}`);
       return;
+    }
+    if (this.confirmTrigger) {
+      const ok = await this.confirmTrigger(trigger, context).catch(() => false);
+      if (!ok) {
+        this._log('info', `Trigger "${trigger.name}" dismissed by user`);
+        return;
+      }
     }
     await this.launchAgent({
       type:        trigger.agentType   || 'custom',
@@ -151,12 +160,17 @@ class Leverler extends EventEmitter {
   }
 
   getState() {
+    const safeTriggers = this.config.triggers.map(t => {
+      if (!t.emailConfig) return t;
+      const { pass, encPass, ...emailCfg } = t.emailConfig;
+      return { ...t, emailConfig: emailCfg };
+    });
     return {
       isRunning: this.isRunning,
       stats:     { ...this.stats },
       agents:    [...this.agents.values()].map(a => ({ ...a })),
-      triggers:  this.config.triggers,
-      config:    { ...this.config },
+      triggers:  safeTriggers,
+      config:    { ...this.config, triggers: undefined },
     };
   }
 

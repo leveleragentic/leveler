@@ -4,12 +4,14 @@ const { clipboard } = require('electron');
 class TriggerManager extends EventEmitter {
   constructor(config) {
     super();
-    this.config   = config;
-    this.triggers = new Map();   // id → trigger
-    this.timers   = new Map();   // id → timer handle
-    this.running  = false;
-    this.lastClip = '';
+    this.config    = config;
+    this.triggers  = new Map();   // id → trigger
+    this.timers    = new Map();   // id → timer handle
+    this.running   = false;
+    this.lastClip  = '';
     this.clipTimer = null;
+    this.lastFired = new Map();   // id → last fire timestamp (rate limiting)
+    this.backoff   = new Map();   // id → { count, until } (IMAP backoff)
 
     (config.triggers || []).forEach(t => this.add(t));
   }
@@ -47,15 +49,26 @@ class TriggerManager extends EventEmitter {
 
   _checkKeywords(text, source) {
     const lower = text.toLowerCase();
+    const now   = Date.now();
     this.triggers.forEach(trigger => {
       if (!trigger.enabled || trigger.type !== 'keyword') return;
       const match = (trigger.keywords || []).find(kw =>
         kw && lower.includes(kw.toLowerCase())
       );
-      if (match) {
-        this._log('trigger', `Keyword hit: "${match}" via ${source}`);
-        this.emit('triggered', trigger, { source, text: text.slice(0, 800), matchedKeyword: match });
-      }
+      if (!match) return;
+
+      // Per-trigger cooldown (default 30s) to prevent spam
+      const cooldownMs = (trigger.cooldownSec ?? 30) * 1000;
+      const lastFire   = this.lastFired.get(trigger.id) || 0;
+      if (now - lastFire < cooldownMs) return;
+      this.lastFired.set(trigger.id, now);
+
+      this._log('trigger', `Keyword hit: "${match}" via ${source}`);
+      this.emit('triggered', trigger, {
+        source,
+        text: text.slice(0, 800),
+        matchedKeyword: match,
+      });
     });
   }
 
@@ -74,6 +87,14 @@ class TriggerManager extends EventEmitter {
     const cfg = trigger.emailConfig;
     if (!cfg?.host || !cfg?.user || !cfg?.pass) {
       this._log('warn', `Email trigger "${trigger.name}": IMAP config missing`);
+      return;
+    }
+
+    // Exponential backoff: skip poll if still within backoff window
+    const bo = this.backoff.get(trigger.id) || { count: 0, until: 0 };
+    if (Date.now() < bo.until) {
+      const remaining = Math.ceil((bo.until - Date.now()) / 1000);
+      this._log('info', `Email trigger "${trigger.name}": backing off (${remaining}s remaining)`);
       return;
     }
 
@@ -109,12 +130,19 @@ class TriggerManager extends EventEmitter {
         await client.logout();
       }
 
+      // Success — clear backoff
+      this.backoff.set(trigger.id, { count: 0, until: 0 });
+
       if (results.length > 0) {
         this._log('trigger', `Email trigger "${trigger.name}": ${results.length} matching message(s)`);
         this.emit('triggered', trigger, { source: 'email', messages: results });
       }
     } catch (err) {
-      this._log('error', `Email poll failed (${trigger.name}): ${err.message}`);
+      // Exponential backoff: 10s, 20s, 40s, 80s … capped at 5 min
+      const count     = (bo.count || 0) + 1;
+      const delaySec  = Math.min(300, 10 * Math.pow(2, count - 1));
+      this.backoff.set(trigger.id, { count, until: Date.now() + delaySec * 1000 });
+      this._log('error', `Email poll failed (${trigger.name}): ${err.message} — retrying in ${delaySec}s`);
     }
   }
 
@@ -132,6 +160,8 @@ class TriggerManager extends EventEmitter {
       clearInterval(this.timers.get(id));
       this.timers.delete(id);
     }
+    this.lastFired.delete(id);
+    this.backoff.delete(id);
   }
 
   update(id, data) {

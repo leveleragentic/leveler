@@ -49,8 +49,26 @@ class AgentRunner {
     }
   }
 
+  // ── Model name validation ──────────────────────────────────────────────
+  _validateModelName(name) {
+    return typeof name === 'string' && /^[a-zA-Z0-9._:/-]{1,100}$/.test(name);
+  }
+
+  // ── Context sanitization ───────────────────────────────────────────────
+  _sanitize(text, maxLen = 2000) {
+    if (!text) return text;
+    // Strip non-printable control characters (keep newlines/tabs)
+    return String(text)
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+      .slice(0, maxLen);
+  }
+
   // ── Main agent runner ──────────────────────────────────────────────────
   async run({ type, prompt, context, onProgress }) {
+    if (!this._validateModelName(this.config.model)) {
+      throw new Error(`Invalid model name: "${this.config.model}"`);
+    }
+
     onProgress?.(`Connecting to Ollama at ${this.config.host}…`);
 
     // Verify Ollama is reachable
@@ -119,19 +137,19 @@ class AgentRunner {
   // ── Build user message ────────────────────────────────────────────────
   _buildUserMessage(type, prompt, context) {
     const parts = [];
-    if (prompt) parts.push(prompt);
+    if (prompt) parts.push(this._sanitize(prompt, 4000));
 
     if (context) {
       if (typeof context === 'string') {
-        parts.push(`\nContext:\n${context}`);
+        parts.push(`\nContext:\n${this._sanitize(context)}`);
       } else if (context.text) {
-        parts.push(`\nClipboard content:\n${context.text}`);
+        parts.push(`\nClipboard content:\n${this._sanitize(context.text)}`);
         if (context.matchedKeyword) {
-          parts.push(`(Triggered by keyword: "${context.matchedKeyword}")`);
+          parts.push(`(Triggered by keyword: "${this._sanitize(context.matchedKeyword, 100)}")`);
         }
       } else if (context.messages) {
         const msgs = context.messages.slice(0, 5)
-          .map(m => `• From: ${m.from}\n  Subject: ${m.subject}`).join('\n');
+          .map(m => `• From: ${this._sanitize(m.from, 200)}\n  Subject: ${this._sanitize(m.subject, 300)}`).join('\n');
         parts.push(`\nEmails to process:\n${msgs}`);
       }
     }

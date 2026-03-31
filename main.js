@@ -1,14 +1,58 @@
 require('dotenv').config();
 const {
   app, BrowserWindow, Tray, Menu, ipcMain,
-  nativeImage, shell
+  nativeImage, shell, safeStorage, dialog
 } = require('electron');
 const path = require('path');
+const fs   = require('fs');
 const { Leverler } = require('./agents/leverler');
 
-let mainWindow = null;
-let tray       = null;
-let leverler   = null;
+let mainWindow  = null;
+let tray        = null;
+let leverler    = null;
+let CONFIG_PATH = null;
+
+// ── Config persistence ────────────────────────────────────────────────────
+function loadConfig() {
+  try {
+    if (!fs.existsSync(CONFIG_PATH)) return {};
+    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    if (raw.triggers && safeStorage.isEncryptionAvailable()) {
+      raw.triggers = raw.triggers.map(t => {
+        if (t.emailConfig?.encPass) {
+          try {
+            t.emailConfig.pass = safeStorage.decryptString(
+              Buffer.from(t.emailConfig.encPass, 'base64')
+            );
+          } catch (_) {}
+          delete t.emailConfig.encPass;
+        }
+        return t;
+      });
+    }
+    return raw;
+  } catch { return {}; }
+}
+
+function saveConfig(config) {
+  try {
+    const toSave = JSON.parse(JSON.stringify(config));
+    if (toSave.triggers && safeStorage.isEncryptionAvailable()) {
+      toSave.triggers = toSave.triggers.map(t => {
+        if (t.emailConfig?.pass) {
+          t.emailConfig.encPass = safeStorage.encryptString(
+            t.emailConfig.pass
+          ).toString('base64');
+          delete t.emailConfig.pass;
+        }
+        return t;
+      });
+    }
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(toSave, null, 2));
+  } catch (err) {
+    console.error('Failed to save config:', err.message);
+  }
+}
 
 // ── Tray icon ─────────────────────────────────────────────────────────────
 function makeTrayIcon(active) {
@@ -84,14 +128,34 @@ function createTray() {
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  CONFIG_PATH = path.join(app.getPath('userData'), 'leverler-config.json');
   createWindow();
   const updateTray = createTray();
 
+  const saved = loadConfig();
+
   leverler = new Leverler({
-    ollamaHost:          process.env.OLLAMA_HOST  || 'http://localhost:11434',
-    ollamaModel:         process.env.OLLAMA_MODEL || 'qwen2.5:7b',
-    ollamaTemperature:   parseFloat(process.env.OLLAMA_TEMP || '0.4'),
-    maxConcurrentAgents: 3,
+    ollamaHost:          saved.ollamaHost          || process.env.OLLAMA_HOST  || 'http://localhost:11434',
+    ollamaModel:         saved.ollamaModel         || process.env.OLLAMA_MODEL || 'qwen2.5:7b',
+    ollamaTemperature:   saved.ollamaTemperature   ?? parseFloat(process.env.OLLAMA_TEMP || '0.4'),
+    maxConcurrentAgents: saved.maxConcurrentAgents || 3,
+    triggers:            saved.triggers            || [],
+    confirmTrigger: async (trigger, ctx) => {
+      const source  = ctx.source || 'external';
+      const preview = ctx.text
+        ? `"${ctx.text.slice(0, 120)}"`
+        : ctx.messages ? `${ctx.messages.length} email(s)` : '';
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type:      'question',
+        buttons:   ['Launch Agent', 'Dismiss'],
+        defaultId: 0,
+        cancelId:  1,
+        title:     'Trigger Detected',
+        message:   `Launch agent for "${trigger.name}"?`,
+        detail:    `Source: ${source}${preview ? `\nContent: ${preview}` : ''}`,
+      });
+      return response === 0;
+    },
   });
 
   // Forward events → renderer
@@ -105,16 +169,30 @@ app.whenReady().then(() => {
   leverler.on('leverler:status', ({ running }) => updateTray(running));
 
   // ── IPC ─────────────────────────────────────────────────────────────
-  ipcMain.handle('leverler:start',         ()            => leverler.start());
-  ipcMain.handle('leverler:stop',          ()            => leverler.stop());
-  ipcMain.handle('leverler:getState',      ()            => leverler.getState());
-  ipcMain.handle('leverler:setConfig',     (_, cfg)      => leverler.setConfig(cfg));
-  ipcMain.handle('leverler:launchAgent',   (_, opts)     => leverler.launchAgent(opts));
-  ipcMain.handle('leverler:addTrigger',    (_, t)        => leverler.addTrigger(t));
-  ipcMain.handle('leverler:removeTrigger', (_, id)       => leverler.removeTrigger(id));
-  ipcMain.handle('leverler:updateTrigger', (_, id, data) => leverler.updateTrigger(id, data));
-  ipcMain.handle('leverler:checkOllama',   ()            => leverler.checkOllama());
-  ipcMain.handle('app:openExternal',       (_, url)      => shell.openExternal(url));
+  ipcMain.handle('leverler:start',    () => leverler.start());
+  ipcMain.handle('leverler:stop',     () => leverler.stop());
+  ipcMain.handle('leverler:getState', () => leverler.getState());
+
+  ipcMain.handle('leverler:setConfig', (_, cfg) => {
+    leverler.setConfig(cfg);
+    saveConfig(leverler.config);
+  });
+  ipcMain.handle('leverler:launchAgent', (_, opts) => leverler.launchAgent(opts));
+  ipcMain.handle('leverler:addTrigger', (_, t) => {
+    const result = leverler.addTrigger(t);
+    saveConfig(leverler.config);
+    return result;
+  });
+  ipcMain.handle('leverler:removeTrigger', (_, id) => {
+    leverler.removeTrigger(id);
+    saveConfig(leverler.config);
+  });
+  ipcMain.handle('leverler:updateTrigger', (_, id, data) => {
+    leverler.updateTrigger(id, data);
+    saveConfig(leverler.config);
+  });
+  ipcMain.handle('leverler:checkOllama', () => leverler.checkOllama());
+  ipcMain.handle('app:openExternal',     (_, url) => shell.openExternal(url));
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
 });
