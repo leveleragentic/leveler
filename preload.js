@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('leverler', {
   addTrigger:     (t)        => ipcRenderer.invoke('leverler:addTrigger', t),
   removeTrigger:  (id)       => ipcRenderer.invoke('leverler:removeTrigger', id),
   updateTrigger:  (id, data) => ipcRenderer.invoke('leverler:updateTrigger', id, data),
+  retryAgent:     (id)       => ipcRenderer.invoke('leverler:retryAgent', id),
   checkOllama:    ()         => ipcRenderer.invoke('leverler:checkOllama'),
   openExternal:   (url)      => ipcRenderer.invoke('app:openExternal', url),
   on: (event, cb) => {

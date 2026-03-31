@@ -161,7 +161,7 @@ app.whenReady().then(() => {
   // Forward events → renderer
   [
     'leverler:status', 'agent:start', 'agent:update',
-    'agent:complete', 'log', 'trigger:fired'
+    'agent:complete', 'log', 'trigger:fired', 'queue:update'
   ].forEach(evt => {
     leverler.on(evt, (data) => mainWindow?.webContents?.send(evt, data));
   });
@@ -191,7 +191,8 @@ app.whenReady().then(() => {
     leverler.updateTrigger(id, data);
     saveConfig(leverler.config);
   });
-  ipcMain.handle('leverler:checkOllama', () => leverler.checkOllama());
+  ipcMain.handle('leverler:retryAgent',  (_, id)  => leverler.retryAgent(id));
+  ipcMain.handle('leverler:checkOllama', ()       => leverler.checkOllama());
   ipcMain.handle('app:openExternal',     (_, url) => shell.openExternal(url));
 
   mainWindow.once('ready-to-show', () => mainWindow.show());

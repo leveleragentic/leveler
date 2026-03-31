@@ -47,14 +47,22 @@ class TriggerManager extends EventEmitter {
     }, 1500);
   }
 
+  // Keyword match: plain substring OR /regex/flags syntax
+  _matchesKeyword(text, lower, kw) {
+    if (!kw) return false;
+    const reParts = kw.match(/^\/(.+)\/([gimy]*)$/);
+    if (reParts) {
+      try { return new RegExp(reParts[1], reParts[2]).test(text); } catch { return false; }
+    }
+    return lower.includes(kw.toLowerCase());
+  }
+
   _checkKeywords(text, source) {
     const lower = text.toLowerCase();
     const now   = Date.now();
     this.triggers.forEach(trigger => {
       if (!trigger.enabled || trigger.type !== 'keyword') return;
-      const match = (trigger.keywords || []).find(kw =>
-        kw && lower.includes(kw.toLowerCase())
-      );
+      const match = (trigger.keywords || []).find(kw => this._matchesKeyword(text, lower, kw));
       if (!match) return;
 
       // Per-trigger cooldown (default 30s) to prevent spam

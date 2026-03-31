@@ -3,6 +3,8 @@ const { AgentRunner } = require('./agentRunner');
 const { TriggerManager } = require('./triggers');
 const crypto = require('crypto');
 
+const QUEUE_MAX = 20;
+
 class Leverler extends EventEmitter {
   constructor(config = {}) {
     super();
@@ -17,9 +19,10 @@ class Leverler extends EventEmitter {
     };
     delete this.config.confirmTrigger;
 
-    this.agents    = new Map();
-    this.isRunning = false;
-    this.stats     = { triggered: 0, completed: 0, failed: 0 };
+    this.agents       = new Map();
+    this.triggerQueue = [];          // pending { trigger, context } when at capacity
+    this.isRunning    = false;
+    this.stats        = { triggered: 0, completed: 0, failed: 0 };
 
     this.runner   = new AgentRunner({
       host:        this.config.ollamaHost,
@@ -56,10 +59,18 @@ class Leverler extends EventEmitter {
   async _handleTrigger(trigger, context) {
     this.stats.triggered++;
     const active = [...this.agents.values()].filter(a => a.status === 'running').length;
+
     if (active >= this.config.maxConcurrentAgents) {
-      this._log('warn', `Agent cap (${this.config.maxConcurrentAgents}) reached — queued trigger dropped: ${trigger.name}`);
+      if (this.triggerQueue.length < QUEUE_MAX) {
+        this.triggerQueue.push({ trigger, context });
+        this._log('info', `Trigger queued: "${trigger.name}" (queue depth: ${this.triggerQueue.length})`);
+        this.emit('queue:update', { depth: this.triggerQueue.length });
+      } else {
+        this._log('warn', `Queue full (${QUEUE_MAX}) — trigger dropped: ${trigger.name}`);
+      }
       return;
     }
+
     if (this.confirmTrigger) {
       const ok = await this.confirmTrigger(trigger, context).catch(() => false);
       if (!ok) {
@@ -67,6 +78,7 @@ class Leverler extends EventEmitter {
         return;
       }
     }
+
     await this.launchAgent({
       type:        trigger.agentType   || 'custom',
       prompt:      trigger.agentPrompt,
@@ -74,6 +86,18 @@ class Leverler extends EventEmitter {
       context,
       triggeredBy: trigger.name,
     });
+  }
+
+  // ── Process queue after an agent slot opens ───────────────────────────
+  _processQueue() {
+    if (!this.triggerQueue.length) return;
+    const active = [...this.agents.values()].filter(a => a.status === 'running').length;
+    if (active >= this.config.maxConcurrentAgents) return;
+
+    const next = this.triggerQueue.shift();
+    this.emit('queue:update', { depth: this.triggerQueue.length });
+    this._log('info', `Processing queued trigger: "${next.trigger.name}" (${this.triggerQueue.length} remaining)`);
+    this._handleTrigger(next.trigger, next.context);
   }
 
   // ── Launch ───────────────────────────────────────────────────────────
@@ -90,10 +114,13 @@ class Leverler extends EventEmitter {
       progress:    [],
       result:      null,
       error:       null,
+      // stored for retry
+      _prompt:     prompt,
+      _context:    context,
     };
 
     this.agents.set(id, agent);
-    this.emit('agent:start', { ...agent });
+    this.emit('agent:start', this._publicAgent(agent));
     this._log('agent', `Agent launched: ${agent.name} [${type}]`);
 
     try {
@@ -118,11 +145,33 @@ class Leverler extends EventEmitter {
       this._log('error', `Agent failed: ${agent.name} — ${err.message}`);
     }
 
-    this.emit('agent:complete', { ...agent });
+    this.emit('agent:complete', this._publicAgent(agent));
+    this._processQueue();
     return id;
   }
 
-  // ── Ollama health check (surfaced to UI) ─────────────────────────────
+  // ── Retry a failed agent ──────────────────────────────────────────────
+  retryAgent(id) {
+    const agent = this.agents.get(id);
+    if (!agent || agent.status !== 'error') return false;
+    this._log('info', `Retrying agent: ${agent.name}`);
+    this.launchAgent({
+      type:        agent.type,
+      prompt:      agent._prompt,
+      name:        agent.name,
+      context:     agent._context,
+      triggeredBy: agent.triggeredBy,
+    });
+    return true;
+  }
+
+  // ── Strip internal fields before sending to renderer ─────────────────
+  _publicAgent(agent) {
+    const { _prompt, _context, ...pub } = agent;
+    return { ...pub };
+  }
+
+  // ── Ollama health check ───────────────────────────────────────────────
   async checkOllama() {
     return this.runner.ping();
   }
@@ -166,11 +215,12 @@ class Leverler extends EventEmitter {
       return { ...t, emailConfig: emailCfg };
     });
     return {
-      isRunning: this.isRunning,
-      stats:     { ...this.stats },
-      agents:    [...this.agents.values()].map(a => ({ ...a })),
-      triggers:  safeTriggers,
-      config:    { ...this.config, triggers: undefined },
+      isRunning:   this.isRunning,
+      stats:       { ...this.stats },
+      queueDepth:  this.triggerQueue.length,
+      agents:      [...this.agents.values()].map(a => this._publicAgent(a)),
+      triggers:    safeTriggers,
+      config:      { ...this.config, triggers: undefined },
     };
   }
 

@@ -4,14 +4,15 @@
 
 // ── State ───────────────────────────────────────────────
 const state = {
-  isRunning: false,
-  agents:    [],
-  triggers:  [],
-  logs:      [],
+  isRunning:  false,
+  agents:     [],
+  triggers:   [],
+  logs:       [],
   logsPaused: false,
-  stats:     { triggered: 0, completed: 0, failed: 0, active: 0 },
-  startedAt: null,
-  config:    {
+  queueDepth: 0,
+  stats:      { triggered: 0, completed: 0, failed: 0, active: 0 },
+  startedAt:  null,
+  config:     {
     ollamaHost:        'http://localhost:11434',
     ollamaModel:       'qwen2.5:7b',
     ollamaTemperature: 0.4,
@@ -92,6 +93,11 @@ window.leverler.on('trigger:fired', ({ trigger }) => {
   renderStats();
 });
 
+window.leverler.on('queue:update', ({ depth }) => {
+  state.queueDepth = depth;
+  renderStats();
+});
+
 window.leverler.on('log', (entry) => {
   state.logs.unshift(entry);
   if (state.logs.length > 500) state.logs.pop();
@@ -101,11 +107,12 @@ window.leverler.on('log', (entry) => {
 // ── Load initial state ────────────────────────────────────
 (async () => {
   const s = await window.leverler.getState();
-  state.isRunning = s.isRunning;
-  state.agents    = s.agents   || [];
-  state.triggers  = s.triggers || [];
-  state.config    = s.config   || state.config;
-  state.stats     = {
+  state.isRunning  = s.isRunning;
+  state.agents     = s.agents   || [];
+  state.triggers   = s.triggers || [];
+  state.config     = s.config   || state.config;
+  state.queueDepth = s.queueDepth || 0;
+  state.stats      = {
     ...s.stats,
     active: (s.agents || []).filter(a => a.status === 'running').length,
   };
@@ -128,6 +135,7 @@ function renderStats() {
   $('stat-completed').textContent = state.stats.completed;
   $('stat-failed').textContent    = state.stats.failed;
   $('stat-active').textContent    = state.stats.active;
+  $('stat-queued').textContent    = state.queueDepth;
   $('triggerCount').textContent   = state.triggers.filter(t => t.enabled).length;
   $('agentCount').textContent     = state.stats.active;
 }
@@ -241,7 +249,12 @@ function renderAgentGrid(container, agents, emptyMsg) {
       ${a.status === 'running' ? `<div class="running-indicator">
         <div class="running-dots"><span></span><span></span><span></span></div>
         generating locally
-      </div>` : ''}`;
+      </div>` : ''}
+      ${a.status === 'error' ? `<button class="btn-ghost btn-retry" data-retry="${a.id}" style="margin-top:8px;font-size:11px">↺ Retry</button>` : ''}`;
+    card.querySelector(`[data-retry="${a.id}"]`)?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await window.leverler.retryAgent(a.id);
+    });
     card.addEventListener('click', () => openAgentModal(a.id));
     container.appendChild(card);
   });
