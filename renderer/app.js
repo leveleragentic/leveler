@@ -119,6 +119,9 @@ window.leverler.on('log', (entry) => {
   updateRunningState(s.isRunning);
   loadSettingsIntoForm(s.config);
   renderAll();
+
+  const mem = await window.leverler.memory.getGlobal();
+  if ($('globalMemory')) $('globalMemory').value = mem || '';
 })();
 
 // ── Render all ────────────────────────────────────────────
@@ -337,8 +340,9 @@ $('saveTriggerBtn').addEventListener('click', async () => {
   const type     = $('t_type').value;
   const trigger  = {
     name, type, keywords,
-    agentType:   $('t_agentType').value,
-    agentPrompt: $('t_prompt').value.trim(),
+    agentType:       $('t_agentType').value,
+    agentPrompt:     $('t_prompt').value.trim(),
+    requireApproval: $('t_requireApproval')?.checked || false,
   };
   if (type === 'email') {
     trigger.emailConfig    = { host: $('t_imapHost').value.trim(), user: $('t_imapUser').value.trim(), pass: $('t_imapPass').value, port: 993 };
@@ -350,6 +354,7 @@ $('saveTriggerBtn').addEventListener('click', async () => {
   $('triggerModal').classList.add('hidden');
   ['t_name','t_keywords','t_imapHost','t_imapUser','t_imapPass','t_prompt'].forEach(id => $(id).value = '');
   $('t_type').value = 'keyword'; $('t_agentType').value = 'custom';
+  if ($('t_requireApproval')) $('t_requireApproval').checked = false;
   $('emailFields').classList.add('hidden');
 });
 
@@ -385,6 +390,9 @@ function loadSettingsIntoForm(cfg) {
     $('tempDisplay').textContent = cfg.ollamaTemperature;
   }
   if (cfg.maxConcurrentAgents) $('maxAgents').value = cfg.maxConcurrentAgents;
+  if ($('requireApprovalGlobal')) {
+    $('requireApprovalGlobal').checked = !!cfg.requireApprovalGlobal;
+  }
 }
 
 $('ollamaModel').addEventListener('change', () => {
@@ -423,10 +431,11 @@ $('saveSettingsBtn').addEventListener('click', async () => {
   const modelSel   = $('ollamaModel').value;
   const model      = modelSel === 'custom' ? $('ollamaModelCustom').value.trim() : modelSel;
   const cfg = {
-    ollamaHost:          $('ollamaHost').value.trim(),
-    ollamaModel:         model || 'qwen2.5:7b',
-    ollamaTemperature:   parseFloat($('ollamaTemp').value),
-    maxConcurrentAgents: parseInt($('maxAgents').value),
+    ollamaHost:            $('ollamaHost').value.trim(),
+    ollamaModel:           model || 'qwen2.5:7b',
+    ollamaTemperature:     parseFloat($('ollamaTemp').value),
+    maxConcurrentAgents:   parseInt($('maxAgents').value),
+    requireApprovalGlobal: $('requireApprovalGlobal')?.checked || false,
   };
   await window.leverler.setConfig(cfg);
   state.config = { ...state.config, ...cfg };
@@ -450,6 +459,97 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
       if (overlay.id === 'agentModal') openAgentId = null;
     }
   });
+});
+
+// ── History ───────────────────────────────────────────────
+const historyState = { offset: 0, limit: 30, search: '', total: 0 };
+
+async function loadHistory(reset = true) {
+  if (reset) historyState.offset = 0;
+  const { offset, limit, search } = historyState;
+
+  const [runs, total] = await Promise.all([
+    window.leverler.history.list({ limit, offset, search }),
+    window.leverler.history.count({ search }),
+  ]);
+
+  historyState.total = total;
+  $('historyStats').textContent =
+    `${total} run${total !== 1 ? 's' : ''} stored${search ? ` matching "${search}"` : ''}`;
+
+  const container = $('historyList');
+  if (reset) container.innerHTML = '';
+
+  if (!runs.length && reset) {
+    container.innerHTML = '<div class="empty-state">No history yet. Completed agent runs will appear here.</div>';
+    $('historyLoadMore').classList.add('hidden');
+    return;
+  }
+
+  runs.forEach(run => {
+    const card = el('div', `agent-card ${run.status}`);
+    const dur  = run.end_time && run.start_time ? msToHuman(run.end_time - run.start_time) : '—';
+    const date = run.start_time ? new Date(run.start_time).toLocaleString() : '—';
+    card.innerHTML = `
+      <div class="agent-card-header">
+        <div class="agent-card-name">${escHtml(run.name)}</div>
+        <div class="status-dot ${run.status}"></div>
+      </div>
+      <div class="agent-card-meta">
+        ${escHtml((run.type || '').toUpperCase())} · ${escHtml(run.triggered_by || 'manual')} · ${dur}
+      </div>
+      <div class="agent-card-meta" style="opacity:0.5;font-size:11px">${date}</div>
+      <div class="agent-card-preview">${escHtml(run.result || run.error || '—')}</div>`;
+    card.addEventListener('click', () => openHistoryRun(run));
+    container.appendChild(card);
+  });
+
+  historyState.offset = offset + runs.length;
+  $('historyLoadMore').classList.toggle('hidden', historyState.offset >= historyState.total);
+}
+
+function openHistoryRun(run) {
+  const agent = {
+    id:          run.id,
+    name:        run.name,
+    type:        run.type,
+    status:      run.status,
+    triggeredBy: run.triggered_by,
+    startTime:   run.start_time,
+    endTime:     run.end_time,
+    progress:    run.progress || [],
+    result:      run.result,
+    error:       run.error,
+  };
+  if (!state.agents.find(x => x.id === agent.id)) state.agents.push(agent);
+  openAgentModal(agent.id);
+}
+
+let _historySearchTimer = null;
+$('historySearch').addEventListener('input', () => {
+  clearTimeout(_historySearchTimer);
+  _historySearchTimer = setTimeout(() => {
+    historyState.search = $('historySearch').value.trim();
+    loadHistory(true);
+  }, 300);
+});
+
+$('historyLoadMore').addEventListener('click', () => loadHistory(false));
+
+$('historyClearBtn').addEventListener('click', async () => {
+  if (!confirm('Delete all history? This cannot be undone.')) return;
+  await window.leverler.history.clear();
+  loadHistory(true);
+});
+
+document.querySelectorAll('.nav-item[data-view="history"]').forEach(btn => {
+  btn.addEventListener('click', () => loadHistory(true));
+});
+
+// ── Memory save (piggyback onto Save Settings) ─────────────
+$('saveSettingsBtn').addEventListener('click', async () => {
+  const mem = $('globalMemory')?.value ?? '';
+  await window.leverler.memory.setGlobal(mem);
 });
 
 // ── Utilities ─────────────────────────────────────────────

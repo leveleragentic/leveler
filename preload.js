@@ -12,6 +12,17 @@ contextBridge.exposeInMainWorld('leverler', {
   retryAgent:     (id)       => ipcRenderer.invoke('leverler:retryAgent', id),
   checkOllama:    ()         => ipcRenderer.invoke('leverler:checkOllama'),
   openExternal:   (url)      => ipcRenderer.invoke('app:openExternal', url),
+  history: {
+    list:   (opts) => ipcRenderer.invoke('history:list',   opts),
+    count:  (opts) => ipcRenderer.invoke('history:count',  opts),
+    get:    (id)   => ipcRenderer.invoke('history:get',    id),
+    delete: (id)   => ipcRenderer.invoke('history:delete', id),
+    clear:  ()     => ipcRenderer.invoke('history:clear'),
+  },
+  memory: {
+    getGlobal: ()        => ipcRenderer.invoke('memory:getGlobal'),
+    setGlobal: (content) => ipcRenderer.invoke('memory:setGlobal', content),
+  },
   on: (event, cb) => {
     const handler = (_, data) => cb(data);
     ipcRenderer.on(event, handler);

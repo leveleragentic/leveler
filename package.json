@@ -8,10 +8,11 @@
     "dev": "ELECTRON_ENV=development electron ."
   },
   "dependencies": {
-    "electron": "^28.2.0",
-    "ollama": "^0.5.0",
+    "better-sqlite3": "^12.8.0",
     "dotenv": "^16.4.0",
-    "imapflow": "^1.0.162"
+    "electron": "^28.2.0",
+    "imapflow": "^1.0.162",
+    "ollama": "^0.5.0"
   },
   "engines": {
     "node": ">=18.0.0"
