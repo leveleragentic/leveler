@@ -6,10 +6,12 @@ const {
 const path = require('path');
 const fs   = require('fs');
 const { Leverler } = require('./agents/leverler');
+const { DB }       = require('./agents/db');
 
 let mainWindow  = null;
 let tray        = null;
 let leverler    = null;
+let db          = null;
 let CONFIG_PATH = null;
 
 // ── Config persistence ────────────────────────────────────────────────────
@@ -132,14 +134,17 @@ app.whenReady().then(() => {
   createWindow();
   const updateTray = createTray();
 
+  db = new DB();
   const saved = loadConfig();
 
   leverler = new Leverler({
-    ollamaHost:          saved.ollamaHost          || process.env.OLLAMA_HOST  || 'http://localhost:11434',
-    ollamaModel:         saved.ollamaModel         || process.env.OLLAMA_MODEL || 'qwen2.5:7b',
-    ollamaTemperature:   saved.ollamaTemperature   ?? parseFloat(process.env.OLLAMA_TEMP || '0.4'),
-    maxConcurrentAgents: saved.maxConcurrentAgents || 3,
-    triggers:            saved.triggers            || [],
+    ollamaHost:            saved.ollamaHost            || process.env.OLLAMA_HOST  || 'http://localhost:11434',
+    ollamaModel:           saved.ollamaModel           || process.env.OLLAMA_MODEL || 'qwen2.5:7b',
+    ollamaTemperature:     saved.ollamaTemperature     ?? parseFloat(process.env.OLLAMA_TEMP || '0.4'),
+    maxConcurrentAgents:   saved.maxConcurrentAgents   || 3,
+    requireApprovalGlobal: saved.requireApprovalGlobal || false,
+    triggers:              saved.triggers              || [],
+    db,
     confirmTrigger: async (trigger, ctx) => {
       const source  = ctx.source || 'external';
       const preview = ctx.text
@@ -153,6 +158,19 @@ app.whenReady().then(() => {
         title:     'Trigger Detected',
         message:   `Launch agent for "${trigger.name}"?`,
         detail:    `Source: ${source}${preview ? `\nContent: ${preview}` : ''}`,
+      });
+      return response === 0;
+    },
+    confirmToolExecution: async (toolName, args) => {
+      const preview = JSON.stringify(args, null, 2).slice(0, 300);
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type:      'question',
+        buttons:   ['Allow', 'Deny'],
+        defaultId: 0,
+        cancelId:  1,
+        title:     'Tool Execution Approval',
+        message:   `Allow tool: ${toolName}?`,
+        detail:    `Arguments:\n${preview}`,
       });
       return response === 0;
     },
@@ -194,6 +212,17 @@ app.whenReady().then(() => {
   ipcMain.handle('leverler:retryAgent',  (_, id)  => leverler.retryAgent(id));
   ipcMain.handle('leverler:checkOllama', ()       => leverler.checkOllama());
   ipcMain.handle('app:openExternal',     (_, url) => shell.openExternal(url));
+
+  // ── History ──────────────────────────────────────────────────────────
+  ipcMain.handle('history:list',   (_, opts)  => db.listRuns(opts));
+  ipcMain.handle('history:count',  (_, opts)  => db.countRuns(opts));
+  ipcMain.handle('history:get',    (_, id)    => db.getRun(id));
+  ipcMain.handle('history:delete', (_, id)    => { db.deleteRun(id); });
+  ipcMain.handle('history:clear',  ()         => { db.clearRuns(); });
+
+  // ── Memory ───────────────────────────────────────────────────────────
+  ipcMain.handle('memory:getGlobal', ()          => db.getMemory('global'));
+  ipcMain.handle('memory:setGlobal', (_, content) => { db.setMemory('global', content); });
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
 });

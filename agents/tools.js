@@ -80,8 +80,18 @@ const TOOL_DEFINITIONS = [
   },
 ];
 
+// Tools that require user approval when an approval callback is provided
+const APPROVAL_REQUIRED_TOOLS = new Set(['save_to_file']);
+
 // ── Tool execution ─────────────────────────────────────────────────────────
-async function executeTool(name, args) {
+// approvalCallback: async (name, args) => boolean — if provided, called before
+// executing any tool in APPROVAL_REQUIRED_TOOLS. Returning false cancels the call.
+async function executeTool(name, args, approvalCallback = null) {
+  if (approvalCallback && APPROVAL_REQUIRED_TOOLS.has(name)) {
+    const ok = await approvalCallback(name, args).catch(() => false);
+    if (!ok) return 'Action cancelled by user.';
+  }
+
   switch (name) {
     case 'write_to_clipboard': {
       clipboard.writeText(String(args.text ?? ''));
@@ -166,4 +176,4 @@ function fetchUrl(rawUrl) {
   });
 }
 
-module.exports = { TOOL_DEFINITIONS, executeTool };
+module.exports = { TOOL_DEFINITIONS, executeTool, APPROVAL_REQUIRED_TOOLS };

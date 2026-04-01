@@ -8,19 +8,25 @@ const QUEUE_MAX = 20;
 class Leverler extends EventEmitter {
   constructor(config = {}) {
     super();
-    this.confirmTrigger = config.confirmTrigger || null;
+    this.confirmTrigger      = config.confirmTrigger      || null;
+    this.confirmToolExecution = config.confirmToolExecution || null;
+    this.db                  = config.db                  || null;
+
     this.config = {
-      ollamaHost:           'http://localhost:11434',
-      ollamaModel:          'qwen2.5:7b',
-      ollamaTemperature:    0.4,
-      maxConcurrentAgents:  3,
-      triggers:             [],
+      ollamaHost:              'http://localhost:11434',
+      ollamaModel:             'qwen2.5:7b',
+      ollamaTemperature:       0.4,
+      maxConcurrentAgents:     3,
+      requireApprovalGlobal:   false,
+      triggers:                [],
       ...config,
     };
     delete this.config.confirmTrigger;
+    delete this.config.confirmToolExecution;
+    delete this.config.db;
 
     this.agents       = new Map();
-    this.triggerQueue = [];          // pending { trigger, context } when at capacity
+    this.triggerQueue = [];
     this.isRunning    = false;
     this.stats        = { triggered: 0, completed: 0, failed: 0 };
 
@@ -80,11 +86,12 @@ class Leverler extends EventEmitter {
     }
 
     await this.launchAgent({
-      type:        trigger.agentType   || 'custom',
-      prompt:      trigger.agentPrompt,
-      name:        `${trigger.name} agent`,
+      type:            trigger.agentType    || 'custom',
+      prompt:          trigger.agentPrompt,
+      name:            `${trigger.name} agent`,
       context,
-      triggeredBy: trigger.name,
+      triggeredBy:     trigger.name,
+      requireApproval: trigger.requireApproval || this.config.requireApprovalGlobal,
     });
   }
 
@@ -101,7 +108,7 @@ class Leverler extends EventEmitter {
   }
 
   // ── Launch ───────────────────────────────────────────────────────────
-  async launchAgent({ type, prompt, name, context, triggeredBy = 'manual' }) {
+  async launchAgent({ type, prompt, name, context, triggeredBy = 'manual', requireApproval = false }) {
     const id = crypto.randomUUID();
     const agent = {
       id,
@@ -114,7 +121,7 @@ class Leverler extends EventEmitter {
       progress:    [],
       result:      null,
       error:       null,
-      // stored for retry
+      // stored for retry only, stripped before sending to renderer/DB
       _prompt:     prompt,
       _context:    context,
     };
@@ -123,9 +130,14 @@ class Leverler extends EventEmitter {
     this.emit('agent:start', this._publicAgent(agent));
     this._log('agent', `Agent launched: ${agent.name} [${type}]`);
 
+    // Build approval callback if required
+    const approvalCallback = (requireApproval && this.confirmToolExecution)
+      ? (toolName, args) => this.confirmToolExecution(toolName, args)
+      : null;
+
     try {
       const result = await this.runner.run({
-        type, prompt, context,
+        type, prompt, context, approvalCallback,
         onProgress: (msg) => {
           agent.progress.push({ t: Date.now(), msg });
           this.emit('agent:update', { id, msg });
@@ -146,6 +158,10 @@ class Leverler extends EventEmitter {
     }
 
     this.emit('agent:complete', this._publicAgent(agent));
+
+    // Persist to DB
+    if (this.db) this.db.saveRun(this._publicAgent(agent));
+
     this._processQueue();
     return id;
   }
@@ -165,7 +181,7 @@ class Leverler extends EventEmitter {
     return true;
   }
 
-  // ── Strip internal fields before sending to renderer ─────────────────
+  // ── Strip internal fields before sending to renderer/DB ──────────────
   _publicAgent(agent) {
     const { _prompt, _context, ...pub } = agent;
     return { ...pub };

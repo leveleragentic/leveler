@@ -81,7 +81,7 @@ class AgentRunner {
   }
 
   // ── Main agent runner — agentic tool-use loop ──────────────────────────
-  async run({ type, prompt, context, onProgress }) {
+  async run({ type, prompt, context, onProgress, approvalCallback = null }) {
     if (!this._validateModelName(this.config.model)) {
       throw new Error(`Invalid model name: "${this.config.model}"`);
     }
@@ -164,7 +164,11 @@ class AgentRunner {
 
         let result;
         try {
-          result = await executeTool(name, typeof args === 'string' ? JSON.parse(args) : args);
+          result = await executeTool(
+            name,
+            typeof args === 'string' ? JSON.parse(args) : args,
+            approvalCallback
+          );
           onProgress?.(`  → ${String(result).slice(0, 150)}`);
         } catch (toolErr) {
           result = `Error: ${toolErr.message}`;
